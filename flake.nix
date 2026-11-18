@@ -18,6 +18,9 @@
 				let
 					pkgs = pkgsFor system;
 
+					envIncludes = builtins.concatStringsSep ":" [
+						"${pkgs.glibc.dev}/include"
+					];
 				in
 				{
 					default = pkgs.mkShell {

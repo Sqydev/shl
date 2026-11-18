@@ -2,5 +2,5 @@ option(
 	'lib',
 	type: 'string',
 	value: '',
-	description: 'Which lib\'s tester to test',
+	description: 'Library from src/ to build a tester for',
 )

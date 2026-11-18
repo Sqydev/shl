@@ -1,13 +1,10 @@
-default:
-	just build
-
 shl_token:
-	meson setup build/debug --reconfigure -Dvtwm_debug=true
-	meson compile -C build/debug
-	just clangd-link build/debug
+	meson setup build/shl_token --reconfigure -Dlib=shl_token
+	meson compile -C build/shl_token
+	just clangd-link build/shl_token
 
-clangd-link DIR='build/release':
-	ln -sfn {{DIR}}/compile_commands.json compile_commands.json
+clangd-link DIR='':
+	[ -z "{{DIR}}" ] || ln -sfn "{{DIR}}/compile_commands.json" compile_commands.json
 
 clean:
 	rm -rf build/ compile_commands.json compiled/ core .cache/

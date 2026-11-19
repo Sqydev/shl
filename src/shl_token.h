@@ -33,12 +33,12 @@
 *    source or binary distribution.
 */
 
-#include <stdio.h>
 #ifdef SHL_TOKEN_IMPLEMENTATION
 
 #include <string.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 typedef struct shl_tokens {
 	char** items;
@@ -49,7 +49,11 @@ typedef struct shl_token_opts {
 	size_t size; // If 0 then the lib count BUT ONLY if it's null terminated, if not, there will be segv
 	char nullTerminatorIn; // Null term, if you have to chainge it or something.
 	char nullTerminatorOut; // The output will be terminated with this null term
-	char separator; // Token separator
+	char separator;
+	bool quotes;
+	char quetesChar;
+	bool quouteEscape; // The thing that safes "\""
+	char quouteEscapeChar;
 } shl_token_opts;
 
 shl_token_opts shl_get_default_opts(void) {
@@ -59,6 +63,12 @@ shl_token_opts shl_get_default_opts(void) {
 	opts.nullTerminatorOut = '\0';
 	opts.size = 0;
 	opts.separator = ' ';
+
+	opts.quotes = true;
+	opts.quetesChar = '"';
+
+	opts.quouteEscape = true;
+	opts.quouteEscapeChar = '\\';
 
 	return opts;
 }
@@ -72,13 +82,33 @@ shl_tokens shl_tokenise(const char* tokenise, shl_token_opts* opts) {
 		size_t i = 0;
 		char* ptrr = (char*)tokenise;
 		bool wasPreviousSep = false;
+		bool wasPreviousBackslashEsc = false;
+		bool quouted = false;
 		bool wasThereAnyTokenBefore = false;
+
+		#ifdef SHL_TOKEN_DEBUG
+			printf("Detected FIRST token on ptrr: \"%s\"\n", ptrr);
+		#endif
 		while(opts->size == 0 ? *ptrr != opts->nullTerminatorIn : i < opts->size) {
-			if(*ptrr == opts->separator) {
+			if(*ptrr == opts->quouteEscapeChar && opts->quouteEscape && !wasPreviousBackslashEsc) {
+				wasPreviousBackslashEsc = true;
+			}
+			else {
+				wasPreviousBackslashEsc = false;
+			}
+
+			if(*ptrr == opts->quetesChar && opts->quotes && !wasPreviousBackslashEsc) {
+				quouted = !quouted;
+			}
+
+			if(*ptrr == opts->separator && !wasPreviousBackslashEsc && !quouted) {
 				separatorCount++;
 				if(!wasPreviousSep && *(ptrr + sizeof(char)) != opts->nullTerminatorIn && *(ptrr + sizeof(char)) != opts->separator && wasThereAnyTokenBefore == true) {
 					wasPreviousSep = true;
 					tokensCount++;
+					#ifdef SHL_TOKEN_DEBUG
+						printf("Detected NEW token on ptrr: \"%s\"\n", ptrr);
+					#endif
 				}
 			}
 			else {

@@ -2,7 +2,7 @@
 
 int main(void) {
 	shl_token_opts def = shl_get_default_opts();
-	shl_tokens tokens = shl_tokenise("  Hello       world   \n     ", &def);
+	shl_tokens tokens = shl_tokenise("  Hello       world   \n   \" very wholesome token \\\" \"  ", &def);
 	(void)tokens;
 
 	return 0;

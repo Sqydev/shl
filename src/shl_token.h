@@ -33,3 +33,6 @@
 *    source or binary distribution.
 */
 
+#ifdef SHL_TOKEN_IMPLEMENTATION
+
+#endif

@@ -4,7 +4,6 @@ project(
 	version: '1.0.0',
 	meson_version: '>=1.1.0',
 	default_options: [
-		'buildtype=debug',
 		'c_std=c99',
 		'warning_level=3',
 	],
@@ -48,8 +47,9 @@ if fs.exists(lib_source)
 endif
 
 executable(
-	lib + '_tester',
-	tester_main,
-	dependencies: lib_dep,
-	install: false,
+    lib + '_tester',
+    tester_main,
+    dependencies: lib_dep,
+    c_args: ['-D' + lib.to_upper() + '_IMPLEMENTATION'],
+    install: false,
 )

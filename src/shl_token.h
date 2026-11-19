@@ -92,8 +92,18 @@ shl_tokens shl_tokenise(const char* tokenise, shl_token_opts* opts) {
 	}
 	size_t oryginalSize = oryginalLen + 1;
 
-	// TODO: Make it be only when the compiler has some debug flag
-	printf("%zu, %zu, %zu, %zu", oryginalLen, oryginalSize, separatorCount, tokensCount);
+	#ifdef SHL_TOKEN_DEBUG
+		printf("\n\n\n");
+
+		printf("Scanned string to tokenise:\n");
+		printf("tokenise: \"%s\"\n", tokenise);
+		printf("\noryginalLen: %zu\n", oryginalLen);
+		printf("oryginalSize: %zu\n", oryginalSize);
+		printf("\nseparatorCount: %zu\n", separatorCount);
+		printf("tokensCount: %zu\n", tokensCount);
+
+		printf("\n\n\n");
+	#endif
 
 	return (shl_tokens){0};
 }

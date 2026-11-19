@@ -4,9 +4,23 @@ project(
 	version: '1.0.0',
 	meson_version: '>=1.1.0',
 	default_options: [
+		'buildtype=debugoptimized',
+		'b_sanitize=address,undefined',
 		'c_std=c99',
 		'warning_level=3',
 	],
+)
+
+cc = meson.get_compiler('c')
+
+add_project_arguments(
+	cc.get_supported_arguments(
+		'-DDEBUG=1',
+		'-D_FORTIFY_SOURCE=3',
+		'-fasynchronous-unwind-tables',
+		'-fno-sanitize-recover=all',
+	),
+	language: 'c',
 )
 
 fs = import('fs')
@@ -46,10 +60,15 @@ if fs.exists(lib_source)
 	lib_dep = declare_dependency(link_with: static_library('shl_' + lib, lib_source, include_directories: include), include_directories: include)
 endif
 
+add_project_arguments(
+	'-DSHL_TOKEN_DEBUG',
+	'-D' + lib.to_upper() + '_IMPLEMENTATION',
+	language: 'c',
+)
+
 executable(
-    lib + '_tester',
-    tester_main,
-    dependencies: lib_dep,
-    c_args: ['-D' + lib.to_upper() + '_IMPLEMENTATION'],
-    install: false,
+	lib + '_tester',
+	tester_main,
+	dependencies: lib_dep,
+	install: false,
 )

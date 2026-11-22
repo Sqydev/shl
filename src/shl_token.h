@@ -152,7 +152,8 @@ shl_tokenise_loop_end:
 
 	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
 
-	size_t tokensSize = oryginalSize * (tokensCount * sizeof(char)) + ((tokensCount - 1) * sizeof(char));
+	// + nullTerm
+	size_t tokensSize = oryginalSize * (tokensCount * sizeof(char)) + (tokensCount * sizeof(char));
 	// + tokensCount
 	size_t metadataSize = (tokensCount + 1) * sizeof(size_t);
 

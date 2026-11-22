@@ -39,6 +39,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #ifdef SHL_TOKEN_DEBUG
 	#define SHL_TOKEN_DEBUG_PRINT(...) printf(__VA_ARGS__)
@@ -140,20 +141,28 @@ shl_tokenise_loop_end:
 	}
 	size_t oryginalSize = oryginalLen + 1;
 
-	#ifdef SHL_TOKEN_DEBUG
-		printf("\n\n\n");
+	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
 
-		printf("Scanned string to tokenise:\n");
-		printf("tokenise: {%s}\n", tokenise);
-		printf("\noryginalLen: %zu\n", oryginalLen);
-		printf("oryginalSize: %zu\n", oryginalSize);
-		printf("\nseparatorCount: %zu\n", separatorCount);
-		printf("tokensCount: %zu\n", tokensCount);
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] Scanned string to tokenise:\n");
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] tokenise: {%s}\n", tokenise);
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] \noryginalLen: %zu\n", oryginalLen);
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] oryginalSize: %zu\n", oryginalSize);
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] \nseparatorCount: %zu\n", separatorCount);
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] tokensCount: %zu\n", tokensCount);
 
-		printf("\n\n\n");
-	#endif
+	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
 
-	return (shl_tokens){0};
+	size_t tokensSize = oryginalSize * (tokensCount * sizeof(char)) + ((tokensCount - 1) * sizeof(char));
+	// + tokensCount
+	size_t metadataSize = (tokensCount + 1) * sizeof(size_t);
+
+	shl_tokens returner;
+	
+	size_t* metaTokens = malloc(tokensSize + metadataSize);
+	returner.count = metaTokens;
+	returner.items = (char**)metaTokens + metadataSize;
+
+	return returner;
 }
 
 #endif

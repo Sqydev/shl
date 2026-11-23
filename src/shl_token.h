@@ -153,17 +153,20 @@ shl_tokenise_loop_end:
 	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
 
 	// + nullTerm
-	size_t tokensSize = oryginalSize * (tokensCount * sizeof(char)) + (tokensCount * sizeof(char));
+	size_t tokensSize = (oryginalSize * sizeof(char)) + (tokensCount * sizeof(char));
 	// + tokensCount
 	size_t metadataSize = (tokensCount + 1) * sizeof(size_t);
+	size_t tokPtrSize = tokensCount * sizeof(char*);
 
-	shl_tokens returner;
-	
-	size_t* metaTokens = malloc(tokensSize + metadataSize);
-	returner.count = metaTokens;
-	returner.items = (char**)metaTokens + metadataSize;
+	// meta -> tokensPtrs -> tokens
+	void* allocation = malloc(metadataSize + tokPtrSize + tokensSize);
+	if(!allocation) { return (shl_tokens){ NULL, NULL }; }
 
-	return returner;
+	size_t* metaTokens = allocation;
+	char** tokPtrrs = (char**)((char*)allocation + metadataSize);
+	char* tokenst = (char*)((char*)allocation + metadataSize + tokPtrSize);
+
+	return (shl_tokens){ tokPtrrs, metaTokens };
 }
 
 #endif

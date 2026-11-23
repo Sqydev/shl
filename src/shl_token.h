@@ -45,7 +45,7 @@
 #ifdef SHL_TOKEN_DEBUG
 	#define SHL_TOKEN_DEBUG_PRINT(...) printf(__VA_ARGS__)
 #else
-	#define SHL_DEBUG_PRINT(...)
+	#define SHL_TOKEN_DEBUG_PRINT(...)
 #endif
 
 typedef struct shl_tokens {
@@ -94,6 +94,7 @@ shl_tokens shl_tokenise(const char* tokenise, shl_token_opts* opts) {
 	size_t oryginalLen = opts->size;
 	size_t separatorCount = 0;
 	size_t tokensCount = 0;
+	(void)separatorCount;
 
 	{
 		size_t i = 0;
@@ -179,6 +180,7 @@ shl_tokenise_loop_end:
 	{
 		size_t currCount = 0;
 		size_t tokenOffset = 0;
+		size_t tokenLen = 0;
 		bool inToken = false;
 		bool quouted = false;
 		for(size_t i = 0; i < oryginalLen; i++) {
@@ -207,8 +209,10 @@ shl_tokenise_loop_end:
 			if(!quouted && c == opts->separator) {
 				if(inToken) {
 					tokenst[tokenOffset++] = opts->nullTerminatorOut;
+					metaTokens[currCount + 1] = tokenLen;
 					currCount++;
 					inToken = false;
+					tokenLen = 0;
 				}
 				continue;
 			}
@@ -218,10 +222,12 @@ shl_tokenise_loop_end:
 				inToken = true;
 			}
 			tokenst[tokenOffset++] = c;
+			tokenLen++;
 		}
 
 		if(inToken) {
 			tokenst[tokenOffset++] = opts->nullTerminatorOut;
+			metaTokens[currCount + 1] = tokenLen;
 			currCount++;
 		}
 
@@ -232,6 +238,12 @@ shl_tokenise_loop_end:
 
 void shl_free_tokens(shl_tokens tokens) {
 	free((void*)tokens.count);
+}
+
+// Faster, because it uses buffered informations.
+static inline size_t shl_toklen(shl_tokens tokens, size_t index) {
+	if(!tokens.count || index >= tokens.count[0]) { return 0; }
+	return tokens.count[index + 1];
 }
 
 #endif

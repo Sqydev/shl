@@ -1,92 +1,158 @@
+#define _POSIX_C_SOURCE 200809L
+
+#ifdef SHL_TEST_DEBUG
+	#define SHL_TOKEN_DEBUG 1
+#else
+	#undef SHL_TOKEN_DEBUG
+#endif
+
 #include "shl_token.h"
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
-#define SHL_TEST_CONFIG_COUNT 8
-#define SHL_TEST_COUNT 8
+#define SHL_MAX_RESULTS 256
+#define SHL_REASON_SIZE 192
+#define SHL_LINE_WIDTH 64
 
-typedef struct shl_test_stats {
-	size_t passed;
-	size_t failed;
-} shl_test_stats;
+#define SHL_C_RESET "\033[0m"
+#define SHL_C_BOLD "\033[1m"
+#define SHL_C_DIM "\033[2m"
+#define SHL_C_GREEN "\033[32m"
+#define SHL_C_RED "\033[31m"
+#define SHL_C_CYAN "\033[36m"
 
-typedef struct shl_test_case {
+typedef struct shl_check {
+	char section[128];
+	char id[16];
+	const char* name;
+	bool passed;
+	char reason[SHL_REASON_SIZE];
+	const char* input;
+} shl_check;
+
+typedef struct shl_token_case {
 	const char* name;
 	const char* input;
-	const char** expected;
+	const char* const* expected;
 	size_t expectedCount;
-} shl_test_case;
+} shl_token_case;
 
-typedef struct shl_failed_test {
-	size_t number;
-	char id[16];
-	char config[64];
-	char test[64];
-	char reason[128];
-} shl_failed_test;
+typedef struct shl_config {
+	const char* name;
+	bool quotes;
+	bool escape;
+	bool keepQuotes;
+} shl_config;
 
-static shl_failed_test failures[SHL_TEST_CONFIG_COUNT * SHL_TEST_COUNT];
-static size_t failureCount = 0;
-static shl_test_stats globalStats = { 0, 0 };
+typedef void (*shl_check_fn)(shl_check*);
 
-static void shl_test_record_failure(const char* id, const char* configName, const shl_test_case* testCase, const char* reason) {
-	if(failureCount >= SHL_TEST_CONFIG_COUNT * SHL_TEST_COUNT) { return; }
-	shl_failed_test* failure = &failures[failureCount];
+typedef struct shl_fn_test {
+	const char* id;
+	const char* name;
+	shl_check_fn fn;
+} shl_fn_test;
 
-	failure->number = failureCount + 1;
-	snprintf(failure->id, sizeof(failure->id), "%s", id);
-	snprintf(failure->config, sizeof(failure->config), "%s", configName);
-	snprintf(failure->test, sizeof(failure->test), "%s", testCase->name);
-	snprintf(failure->reason, sizeof(failure->reason), "%s", reason);
+static shl_check results[SHL_MAX_RESULTS];
+static size_t resultCount = 0;
+static size_t passedCount = 0;
+static bool useColor = false;
 
-	failureCount++;
+static const shl_config configs[] = {
+	{ "quotes=0 escape=0 keep=0", false, false, false },
+	{ "quotes=0 escape=0 keep=1", false, false, true },
+	{ "quotes=0 escape=1 keep=0", false, true, false },
+	{ "quotes=0 escape=1 keep=1", false, true, true },
+	{ "quotes=1 escape=0 keep=0", true, false, false },
+	{ "quotes=1 escape=0 keep=1", true, false, true },
+	{ "quotes=1 escape=1 keep=0", true, true, false },
+	{ "quotes=1 escape=1 keep=1", true, true, true },
+};
+
+static const char* color(const char* code) {
+	return useColor ? code : "";
 }
 
-static void shl_test(shl_test_stats* stats, const char* id, const char* configName, const shl_test_case* testCase, shl_token_opts opts) {
-	shl_tokens result = shl_tokenise(testCase->input, &opts);
-	char reason[128] = "";
-	size_t count = 0;
+static void shl_fail(shl_check* check, const char* fmt, ...) {
+	if(!check->passed) { return; }
+	check->passed = false;
 
-	if(!result.items || !result.count) {
-		snprintf(reason, sizeof(reason), "%s", "tokenise returned NULL");
-	}
-	else {
-		count = result.count[0];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(check->reason, sizeof(check->reason), fmt, args);
+	va_end(args);
+}
 
-		if(count != testCase->expectedCount) { snprintf(reason, sizeof(reason), "count: expected %zu, got %zu", testCase->expectedCount, count); }
+static void shl_expect_size(shl_check* check, const char* what, size_t expected, size_t actual) {
+	if(expected != actual) { shl_fail(check, "%s: expected %zu, got %zu", what, expected, actual); }
+}
 
-		for(size_t i = 0; i < testCase->expectedCount && i < count; i++) {
-			if(strcmp(result.items[i], testCase->expected[i]) != 0) {
-				if(reason[0] == '\0') { snprintf(reason, sizeof(reason), "token[%zu]: expected \"%s\", got \"%s\"", i, testCase->expected[i], result.items[i]); }
-				break;
-			}
-		}
+static void shl_expect_char(shl_check* check, const char* what, char expected, char actual) {
+	if(expected != actual) { shl_fail(check, "%s: expected '%c', got '%c'", what, expected, actual); }
+}
 
-		free((void*)result.count);
-	}
+static void shl_expect_bool(shl_check* check, const char* what, bool expected, bool actual) {
+	if(expected != actual) { shl_fail(check, "%s: expected %s, got %s", what, expected ? "true" : "false", actual ? "true" : "false"); }
+}
 
-	if(reason[0] == '\0') {
-		printf("[PASS] %-10s %-24s | %s\n", id, configName, testCase->name);
-		stats->passed++;
-		globalStats.passed++;
+static void shl_record(shl_check* check) {
+	if(resultCount >= SHL_MAX_RESULTS) { return; }
+	results[resultCount++] = *check;
+	if(check->passed) { passedCount++; }
+}
+
+static void shl_run_check(const char* section, const char* id, const char* name, shl_check_fn fn) {
+	shl_check check = { { 0 }, { 0 }, name, true, { 0 }, NULL };
+	snprintf(check.section, sizeof(check.section), "%s", section);
+	snprintf(check.id, sizeof(check.id), "%s", id);
+	fn(&check);
+	shl_record(&check);
+}
+
+static void shl_check_tokens(shl_check* check, const char* input, shl_token_opts opts, const char* const* expected, size_t expectedCount) {
+	check->input = input;
+
+	shl_tokens tokens = shl_tokenise(input, &opts);
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "tokenise returned NULL");
 		return;
 	}
 
-	stats->failed++;
-	globalStats.failed++;
+	size_t count = tokens.count[0];
+	shl_expect_size(check, "count", expectedCount, count);
 
-	printf("[FAIL #%zu] %-10s %-24s | %s: %s\n", failureCount + 1, id, configName, testCase->name, reason);
-	printf("             input: \"%s\"\n", testCase->input);
+	size_t common = expectedCount < count ? expectedCount : count;
+	for(size_t i = 0; i < common; i++) {
+		size_t expectedLen = strlen(expected[i]);
+		size_t actualLen = shl_toklen(tokens, i);
 
-	shl_test_record_failure(id, configName, testCase, reason);
+		shl_expect_size(check, "token length", expectedLen, actualLen);
+		if(actualLen != expectedLen) { break; }
+
+		if(memcmp(tokens.items[i], expected[i], actualLen) != 0) {
+			shl_fail(check, "token[%zu]: expected \"%.*s\", got \"%.*s\"", i, (int)expectedLen, expected[i], (int)actualLen, tokens.items[i]);
+			break;
+		}
+
+		if(tokens.items[i][actualLen] != opts.nullTerminatorOut) {
+			shl_fail(check, "token[%zu]: terminator expected '%c', got '%c'", i, opts.nullTerminatorOut, tokens.items[i][actualLen]);
+			break;
+		}
+	}
+
+	shl_free_tokens(tokens);
 }
 
-static void shl_test_run_suite(size_t configIndex, const char* configName, shl_token_opts opts) {
-	shl_test_stats stats = { 0, 0 };
+static void shl_run_config(size_t index, shl_config config) {
+	shl_token_opts opts = shl_get_default_opts();
+	opts.quotes = config.quotes;
+	opts.quouteEscape = config.escape;
+	opts.keepQuotes = config.keepQuotes;
 
 	const char* basic[] = { "Hello", "world" };
 	const char* multipleSeparators[] = { "Hello", "world" };
@@ -104,7 +170,7 @@ static void shl_test_run_suite(size_t configIndex, const char* configName, shl_t
 	const char* escapedRawRemove[] = { "a\\b" };
 	const char* empty[] = { NULL };
 
-	shl_test_case cases[] = {
+	shl_token_case cases[] = {
 		{ "Basic", "Hello world", basic, 2 },
 		{ "Multiple separators", "  Hello       world   ", multipleSeparators, 2 },
 		{
@@ -134,64 +200,215 @@ static void shl_test_run_suite(size_t configIndex, const char* configName, shl_t
 		}
 	};
 
-	printf("\n");
-	printf("===============================================================\n");
-	printf(" CONFIG %zu/%zu: %s\n", configIndex, (size_t)SHL_TEST_CONFIG_COUNT, configName);
-	printf("===============================================================\n");
+	char section[128];
+	snprintf(section, sizeof(section), "CONFIG %zu/%zu - %s", index, sizeof(configs) / sizeof(configs[0]), config.name);
 
 	for(size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		char id[16];
+		snprintf(id, sizeof(id), "C%zu/T%02zu", index, i + 1);
 
-		snprintf(id, sizeof(id), "C%zu/T%02zu", configIndex, i + 1);
-		shl_test(&stats, id, configName, &cases[i], opts);
+		shl_check check = { { 0 }, { 0 }, cases[i].name, true, { 0 }, NULL };
+		snprintf(check.section, sizeof(check.section), "%s", section);
+		snprintf(check.id, sizeof(check.id), "%s", id);
+		shl_check_tokens(&check, cases[i].input, opts, cases[i].expected, cases[i].expectedCount);
+		shl_record(&check);
+	}
+}
+
+static void shl_test_default_opts(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+
+	shl_expect_size(check, "size", 0, opts.size);
+	shl_expect_char(check, "nullTerminatorIn", '\0', opts.nullTerminatorIn);
+	shl_expect_char(check, "nullTerminatorOut", '\0', opts.nullTerminatorOut);
+	shl_expect_char(check, "separator", ' ', opts.separator);
+	shl_expect_bool(check, "quotes", true, opts.quotes);
+	shl_expect_char(check, "quetesChar", '"', opts.quetesChar);
+	shl_expect_bool(check, "quouteEscape", true, opts.quouteEscape);
+	shl_expect_char(check, "quouteEscapeChar", '\\', opts.quouteEscapeChar);
+	shl_expect_bool(check, "keepQuotes", true, opts.keepQuotes);
+}
+
+static void shl_test_toklen(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+	opts.keepQuotes = false;
+
+	shl_tokens tokens = shl_tokenise("a \"bb cc\" d", &opts);
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "tokenise returned NULL");
+		return;
 	}
 
-	printf("---------------------------------------------------------------\n");
-	printf("Passed: %zu | Failed: %zu | Total: %zu\n", stats.passed, stats.failed, stats.passed + stats.failed);
+	size_t expectedLengths[] = { 1, 5, 1 };
+	shl_expect_size(check, "count", 3, tokens.count[0]);
+	for(size_t i = 0; i < sizeof(expectedLengths) / sizeof(expectedLengths[0]) && i < tokens.count[0]; i++) {
+		shl_expect_size(check, "toklen", expectedLengths[i], shl_toklen(tokens, i));
+	}
+
+	shl_free_tokens(tokens);
+}
+
+static void shl_test_toklen_keep_quotes(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+
+	shl_tokens tokens = shl_tokenise("a \"bb cc\" d", &opts);
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "tokenise returned NULL");
+		return;
+	}
+
+	size_t expectedLengths[] = { 1, 7, 1 };
+	shl_expect_size(check, "count", 3, tokens.count[0]);
+	for(size_t i = 0; i < sizeof(expectedLengths) / sizeof(expectedLengths[0]) && i < tokens.count[0]; i++) {
+		shl_expect_size(check, "toklen", expectedLengths[i], shl_toklen(tokens, i));
+	}
+
+	shl_free_tokens(tokens);
+}
+
+static void shl_test_toklen_escape(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+	opts.keepQuotes = false;
+
+	shl_tokens tokens = shl_tokenise("\"a\\\"b\"", &opts);
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "tokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "count", 1, tokens.count[0]);
+	shl_expect_size(check, "toklen", 3, shl_toklen(tokens, 0));
+	if(memcmp(tokens.items[0], "a\"b", 3) != 0) { shl_fail(check, "token[0]: expected \"a\\\"b\", got \"%.*s\"", 3, tokens.items[0]); }
+
+	shl_free_tokens(tokens);
+}
+
+static void shl_test_toklen_custom_terminator(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+	opts.nullTerminatorOut = '|';
+
+	const char* expected[] = { "a", "bb", "c" };
+	shl_check_tokens(check, "a bb c", opts, expected, 3);
+}
+
+static void shl_test_toklen_out_of_range(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+
+	shl_tokens tokens = shl_tokenise("a b", &opts);
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "tokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "toklen(count)", 0, shl_toklen(tokens, tokens.count[0]));
+	shl_expect_size(check, "toklen(count+8)", 0, shl_toklen(tokens, tokens.count[0] + 8));
+
+	shl_free_tokens(tokens);
+}
+
+static void shl_test_null_input(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+
+	shl_tokens nullInput = shl_tokenise(NULL, &opts);
+	if(nullInput.items || nullInput.count) { shl_fail(check, "NULL input should return empty tokens"); }
+	shl_free_tokens(nullInput);
+
+	shl_tokens nullOpts = shl_tokenise("a", NULL);
+	if(nullOpts.items || nullOpts.count) { shl_fail(check, "NULL opts should return empty tokens"); }
+	shl_free_tokens(nullOpts);
+}
+
+static void shl_test_explicit_size(shl_check* check) {
+	shl_token_opts opts = shl_get_default_opts();
+	opts.size = 5;
+
+	const char* expected[] = { "Hello" };
+	shl_check_tokens(check, "Hello world", opts, expected, 1);
+}
+
+static const shl_fn_test fnTests[] = {
+	{ "F01", "Default options", shl_test_default_opts },
+	{ "F02", "toklen basic", shl_test_toklen },
+	{ "F03", "toklen keep quotes", shl_test_toklen_keep_quotes },
+	{ "F04", "toklen escaped quote", shl_test_toklen_escape },
+	{ "F05", "toklen custom terminator", shl_test_toklen_custom_terminator },
+	{ "F06", "toklen out of range", shl_test_toklen_out_of_range },
+	{ "F07", "NULL input and opts", shl_test_null_input },
+	{ "F08", "Explicit size", shl_test_explicit_size },
+};
+
+static void shl_separator(const char* title) {
+	size_t titleLen = strlen(title);
+
+	printf("\n%s", color(SHL_C_DIM));
+	printf("-- %s ", title);
+	for(size_t i = titleLen + 4; i < SHL_LINE_WIDTH; i++) { printf("-"); }
+	printf("%s\n", color(SHL_C_RESET));
+}
+
+static void shl_print_results(void) {
+	const char* section = NULL;
+	size_t failedNumber = 0;
+
+	for(size_t i = 0; i < resultCount; i++) {
+		const shl_check* result = &results[i];
+
+		if(!section || strcmp(section, result->section) != 0) {
+			section = result->section;
+			shl_separator(section);
+		}
+
+		const char* symbol = result->passed ? "+" : "!";
+		const char* symbolColor = result->passed ? SHL_C_GREEN : SHL_C_RED;
+		printf("  %s%s%s %s%-9s%s %s%-34s%s", color(symbolColor), symbol, color(SHL_C_RESET), color(SHL_C_DIM), result->id, color(SHL_C_RESET), color(SHL_C_BOLD), result->name, color(SHL_C_RESET));
+
+		if(!result->passed) {
+			failedNumber++;
+			printf("  %s%s%s", color(SHL_C_RED), result->reason, color(SHL_C_RESET));
+		}
+		printf("\n");
+
+		if(!result->passed && result->input) { printf("      %sinput: \"%s\"%s\n", color(SHL_C_DIM), result->input, color(SHL_C_RESET)); }
+	}
+
+	size_t failed = resultCount - passedCount;
+	shl_separator("SUMMARY");
+	printf("  total:  %zu\n", resultCount);
+	printf("  %spassed: %zu%s\n", color(SHL_C_GREEN), passedCount, color(SHL_C_RESET));
+	printf("  %sfailed: %zu%s\n", failed ? color(SHL_C_RED) : color(SHL_C_DIM), failed, color(SHL_C_RESET));
+
+	if(failed == 0) {
+		printf("\n  %sAll tests passed.%s\n", color(SHL_C_GREEN), color(SHL_C_RESET));
+	}
+	else {
+		printf("\n  %sFailed tests:%s\n", color(SHL_C_RED), color(SHL_C_RESET));
+
+		failedNumber = 0;
+		for(size_t i = 0; i < resultCount; i++) {
+			if(results[i].passed) { continue; }
+			failedNumber++;
+			printf("    #%zu %-9s %-30s %s\n", failedNumber, results[i].id, results[i].name, results[i].reason);
+		}
+	}
 }
 
 int main(void) {
-	size_t configIndex = 0;
+	useColor = isatty(fileno(stdout)) != 0;
 
-	for(int quotes = 0; quotes <= 1; quotes++) {
-		for(int escape = 0; escape <= 1; escape++) {
-			for(int keepQuotes = 0; keepQuotes <= 1; keepQuotes++) {
-				shl_token_opts opts = shl_get_default_opts();
-				char configName[64];
+	shl_separator("SHL TOKEN TESTER");
+	printf("  %ssingle-header tokenizer test suite%s\n", color(SHL_C_BOLD), color(SHL_C_RESET));
+	printf("  configs: %zu | token cases per config: 8 | function checks: %zu\n", sizeof(configs) / sizeof(configs[0]), sizeof(fnTests) / sizeof(fnTests[0]));
 
-				opts.quotes = quotes;
-				opts.quouteEscape = escape;
-				opts.keepQuotes = keepQuotes;
-
-				configIndex++;
-				snprintf(configName, sizeof(configName), "quotes=%d escape=%d keep=%d", quotes, escape, keepQuotes);
-
-				shl_test_run_suite(configIndex, configName, opts);
-			}
-		}
+	for(size_t i = 0; i < sizeof(configs) / sizeof(configs[0]); i++) {
+		shl_run_config(i + 1, configs[i]);
 	}
 
-	printf("\n\n");
-	printf("===============================================================\n");
-	printf("                       GLOBAL SUMMARY\n");
-	printf("===============================================================\n");
-	printf("Total:  %zu\n", globalStats.passed + globalStats.failed);
-	printf("Passed: %zu\n", globalStats.passed);
-	printf("Failed: %zu\n", globalStats.failed);
+	for(size_t i = 0; i < sizeof(fnTests) / sizeof(fnTests[0]); i++) {
+		shl_run_check("FUNCTIONS", fnTests[i].id, fnTests[i].name, fnTests[i].fn);
+	}
+
+	shl_print_results();
 	printf("\n");
 
-	if(failureCount == 0) {
-		printf("[SUCCESS] All tests passed!\n");
-	}
-	else {
-		printf("FAILED TESTS (%zu):\n", failureCount);
-
-		for(size_t i = 0; i < failureCount; i++) {
-			printf("  #%zu  %-10s %-24s %-24s %s\n", failures[i].number, failures[i].id, failures[i].config, failures[i].test, failures[i].reason);
-		}
-	}
-
-	printf("\n");
-
-	return globalStats.failed != 0;
+	return resultCount != passedCount;
 }

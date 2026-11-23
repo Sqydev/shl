@@ -230,4 +230,8 @@ shl_tokenise_loop_end:
 	return (shl_tokens){ tokPtrrs, metaTokens };
 }
 
+void shl_free_tokens(shl_tokens tokens) {
+	free((void*)tokens.count);
+}
+
 #endif

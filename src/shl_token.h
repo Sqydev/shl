@@ -236,12 +236,70 @@ shl_tokenise_loop_end:
 	return (shl_tokens){ tokPtrrs, metaTokens };
 }
 
+// Temporary solution
+shl_tokens shl_tokenise_file(FILE* file, const shl_token_opts* opts) {
+	if(!file || !opts) {
+		return (shl_tokens){ NULL, NULL };
+	}
+
+	size_t capacity = 64 * 1024;
+	size_t size = 0;
+
+	char* buffer = malloc(capacity + 1);
+	if(!buffer) {
+		return (shl_tokens){ NULL, NULL };
+	}
+
+	while(true) {
+		if(size == capacity) {
+			if(capacity >= SIZE_MAX / 2) {
+				free(buffer);
+				return (shl_tokens){ NULL, NULL };
+			}
+
+			size_t newCapacity = capacity * 2;
+			char* tmp = realloc(buffer, newCapacity + 1);
+			if(!tmp) {
+				free(buffer);
+				return (shl_tokens){ NULL, NULL };
+			}
+
+			buffer = tmp;
+			capacity = newCapacity;
+		}
+
+		size_t requested = capacity - size;
+		size_t read = fread(buffer + size, 1, requested, file);
+		size += read;
+
+		if(ferror(file)) {
+			free(buffer);
+			return (shl_tokens){ NULL, NULL };
+		}
+
+		if(read < requested) {
+			break;
+		}
+	}
+
+	buffer[size] = '\0';
+
+	shl_token_opts fileOpts = *opts;
+	fileOpts.size = size;
+
+	shl_tokens tokens = shl_tokenise(buffer, &fileOpts);
+
+	free(buffer);
+
+	return tokens;
+}
+
 void shl_free_tokens(shl_tokens tokens) {
 	free((void*)tokens.count);
 }
 
 // Faster, because it uses buffered informations.
-static inline size_t shl_toklen(shl_tokens tokens, size_t index) {
+size_t shl_toklen(shl_tokens tokens, size_t index) {
 	if(!tokens.count || index >= tokens.count[0]) { return 0; }
 	return tokens.count[index + 1];
 }

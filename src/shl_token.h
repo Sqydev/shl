@@ -36,6 +36,7 @@
 #ifdef SHL_TOKEN_IMPLEMENTATION
 
 #include <string.h>
+#include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -87,6 +88,9 @@ shl_token_opts shl_get_default_opts(void) {
 }
 
 shl_tokens shl_tokenise(const char* tokenise, shl_token_opts* opts) {
+	if(!tokenise || !opts) {
+		return (shl_tokens){ NULL, NULL };
+	}
 	size_t oryginalLen = opts->size;
 	size_t separatorCount = 0;
 	size_t tokensCount = 0;
@@ -110,7 +114,7 @@ shl_tokens shl_tokenise(const char* tokenise, shl_token_opts* opts) {
 			}
 
 			if(opts->quotes && *ptrr == opts->quetesChar) {
-				if(opts->keepQuotes && !quouted && !inToken) {
+				if(!inToken) {
 					inToken = true;
 					tokensCount++;
 				}
@@ -158,6 +162,10 @@ shl_tokenise_loop_end:
 	size_t metadataSize = (tokensCount + 1) * sizeof(size_t);
 	size_t tokPtrSize = tokensCount * sizeof(char*);
 
+	if(metadataSize > SIZE_MAX - tokPtrSize || metadataSize + tokPtrSize > SIZE_MAX - tokensSize) {
+		return (shl_tokens){ NULL, NULL };
+	}
+
 	// meta -> tokensPtrs -> tokens
 	void* allocation = malloc(metadataSize + tokPtrSize + tokensSize);
 	if(!allocation) { return (shl_tokens){ NULL, NULL }; }
@@ -165,6 +173,59 @@ shl_tokenise_loop_end:
 	size_t* metaTokens = allocation;
 	char** tokPtrrs = (char**)((char*)allocation + metadataSize);
 	char* tokenst = (char*)((char*)allocation + metadataSize + tokPtrSize);
+
+	metaTokens[0] = tokensCount;
+
+	{
+		size_t currCount = 0;
+		size_t tokenOffset = 0;
+		bool inToken = false;
+		bool quouted = false;
+		for(size_t i = 0; i < oryginalLen; i++) {
+			char c = tokenise[i];
+
+			if(opts->quotes && c == opts->quetesChar) {
+				if(!inToken) {
+					tokPtrrs[currCount] = tokenst + tokenOffset;
+					inToken = true;
+				}
+
+				quouted = !quouted;
+
+				if(!opts->keepQuotes) {
+					continue;
+				}
+			}
+
+			if(opts->quouteEscape && c == opts->quouteEscapeChar && i + 1 < oryginalLen) {
+				if(tokenise[i + 1] == opts->quetesChar || tokenise[i + 1] == opts->quouteEscapeChar) {
+					i++;
+					c = tokenise[i];
+				}
+			}
+
+			if(!quouted && c == opts->separator) {
+				if(inToken) {
+					tokenst[tokenOffset++] = opts->nullTerminatorOut;
+					currCount++;
+					inToken = false;
+				}
+				continue;
+			}
+	
+			if(!inToken) {
+				tokPtrrs[currCount] = tokenst + tokenOffset;
+				inToken = true;
+			}
+			tokenst[tokenOffset++] = c;
+		}
+
+		if(inToken) {
+			tokenst[tokenOffset++] = opts->nullTerminatorOut;
+			currCount++;
+		}
+
+	}
 
 	return (shl_tokens){ tokPtrrs, metaTokens };
 }

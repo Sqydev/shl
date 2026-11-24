@@ -33,6 +33,9 @@
 *    source or binary distribution.
 */
 
+#ifndef SHL_TOKEN_INCLUDED
+#define SHL_TOKEN_INCLUDED
+
 #ifdef SHL_TOKEN_IMPLEMENTATION
 
 #include <string.h>
@@ -236,7 +239,6 @@ shl_tokenise_loop_end:
 	return (shl_tokens){ tokPtrrs, metaTokens };
 }
 
-// Temporary solution
 shl_tokens shl_tokenise_file(FILE* file, const shl_token_opts* opts) {
 	if(!file || !opts) {
 		return (shl_tokens){ NULL, NULL };
@@ -303,5 +305,7 @@ size_t shl_toklen(shl_tokens tokens, size_t index) {
 	if(!tokens.count || index >= tokens.count[0]) { return 0; }
 	return tokens.count[index + 1];
 }
+
+#endif
 
 #endif

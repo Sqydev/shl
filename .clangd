@@ -1,2 +1,11 @@
 CompileFlags:
-  Add: [-xc, -DSHL_TOKEN_IMPLEMENTATION, -DSHL_TOKEN_DEBUG,-ferror-limit=0, -DDEBUG=1, -D_FORTIFY_SOURCE=3]
+  Add: [
+    -xc,
+    -DSHL_TOKEN_IMPLEMENTATION,
+    -DSHL_TOKEN_DEBUG,
+    -DSHL_STRING_IMPLEMENTATION,
+    -DSHL_STRING_DEBUG,
+    -ferror-limit=0,
+    -DDEBUG=1,
+    -D_FORTIFY_SOURCE=3
+  ]

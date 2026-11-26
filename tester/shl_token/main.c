@@ -117,7 +117,7 @@ static void shl_run_check(const char* section, const char* id, const char* name,
 static void shl_check_tokens(shl_check* check, const char* input, shl_token_opts opts, const char* const* expected, size_t expectedCount) {
 	check->input = input;
 
-	shl_tokens tokens = shl_tokenise(input, &opts);
+	shl_tokens tokens = shl_token_tokenise(input, &opts);
 	if(!tokens.items || !tokens.count) {
 		shl_fail(check, "tokenise returned NULL");
 		return;
@@ -129,7 +129,7 @@ static void shl_check_tokens(shl_check* check, const char* input, shl_token_opts
 	size_t common = expectedCount < count ? expectedCount : count;
 	for(size_t i = 0; i < common; i++) {
 		size_t expectedLen = strlen(expected[i]);
-		size_t actualLen = shl_toklen(tokens, i);
+		size_t actualLen = shl_token_toklen(tokens, i);
 
 		shl_expect_size(check, "token length", expectedLen, actualLen);
 		if(actualLen != expectedLen) { break; }
@@ -145,11 +145,11 @@ static void shl_check_tokens(shl_check* check, const char* input, shl_token_opts
 		}
 	}
 
-	shl_free_tokens(tokens);
+	shl_token_free(tokens);
 }
 
 static void shl_run_config(size_t index, shl_config config) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 	opts.quotes = config.quotes;
 	opts.quouteEscape = config.escape;
 	opts.keepQuotes = config.keepQuotes;
@@ -216,7 +216,7 @@ static void shl_run_config(size_t index, shl_config config) {
 }
 
 static void shl_test_default_opts(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 
 	shl_expect_size(check, "size", 0, opts.size);
 	shl_expect_char(check, "nullTerminatorIn", '\0', opts.nullTerminatorIn);
@@ -230,10 +230,10 @@ static void shl_test_default_opts(shl_check* check) {
 }
 
 static void shl_test_toklen(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 	opts.keepQuotes = false;
 
-	shl_tokens tokens = shl_tokenise("a \"bb cc\" d", &opts);
+	shl_tokens tokens = shl_token_tokenise("a \"bb cc\" d", &opts);
 	if(!tokens.items || !tokens.count) {
 		shl_fail(check, "tokenise returned NULL");
 		return;
@@ -242,16 +242,16 @@ static void shl_test_toklen(shl_check* check) {
 	size_t expectedLengths[] = { 1, 5, 1 };
 	shl_expect_size(check, "count", 3, tokens.count[0]);
 	for(size_t i = 0; i < sizeof(expectedLengths) / sizeof(expectedLengths[0]) && i < tokens.count[0]; i++) {
-		shl_expect_size(check, "toklen", expectedLengths[i], shl_toklen(tokens, i));
+		shl_expect_size(check, "toklen", expectedLengths[i], shl_token_toklen(tokens, i));
 	}
 
-	shl_free_tokens(tokens);
+	shl_token_free(tokens);
 }
 
 static void shl_test_toklen_keep_quotes(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 
-	shl_tokens tokens = shl_tokenise("a \"bb cc\" d", &opts);
+	shl_tokens tokens = shl_token_tokenise("a \"bb cc\" d", &opts);
 	if(!tokens.items || !tokens.count) {
 		shl_fail(check, "tokenise returned NULL");
 		return;
@@ -260,31 +260,31 @@ static void shl_test_toklen_keep_quotes(shl_check* check) {
 	size_t expectedLengths[] = { 1, 7, 1 };
 	shl_expect_size(check, "count", 3, tokens.count[0]);
 	for(size_t i = 0; i < sizeof(expectedLengths) / sizeof(expectedLengths[0]) && i < tokens.count[0]; i++) {
-		shl_expect_size(check, "toklen", expectedLengths[i], shl_toklen(tokens, i));
+		shl_expect_size(check, "toklen", expectedLengths[i], shl_token_toklen(tokens, i));
 	}
 
-	shl_free_tokens(tokens);
+	shl_token_free(tokens);
 }
 
 static void shl_test_toklen_escape(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 	opts.keepQuotes = false;
 
-	shl_tokens tokens = shl_tokenise("\"a\\\"b\"", &opts);
+	shl_tokens tokens = shl_token_tokenise("\"a\\\"b\"", &opts);
 	if(!tokens.items || !tokens.count) {
 		shl_fail(check, "tokenise returned NULL");
 		return;
 	}
 
 	shl_expect_size(check, "count", 1, tokens.count[0]);
-	shl_expect_size(check, "toklen", 3, shl_toklen(tokens, 0));
+	shl_expect_size(check, "toklen", 3, shl_token_toklen(tokens, 0));
 	if(memcmp(tokens.items[0], "a\"b", 3) != 0) { shl_fail(check, "token[0]: expected \"a\\\"b\", got \"%.*s\"", 3, tokens.items[0]); }
 
-	shl_free_tokens(tokens);
+	shl_token_free(tokens);
 }
 
 static void shl_test_toklen_custom_terminator(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 	opts.nullTerminatorOut = '|';
 
 	const char* expected[] = { "a", "bb", "c" };
@@ -292,34 +292,34 @@ static void shl_test_toklen_custom_terminator(shl_check* check) {
 }
 
 static void shl_test_toklen_out_of_range(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 
-	shl_tokens tokens = shl_tokenise("a b", &opts);
+	shl_tokens tokens = shl_token_tokenise("a b", &opts);
 	if(!tokens.items || !tokens.count) {
 		shl_fail(check, "tokenise returned NULL");
 		return;
 	}
 
-	shl_expect_size(check, "toklen(count)", 0, shl_toklen(tokens, tokens.count[0]));
-	shl_expect_size(check, "toklen(count+8)", 0, shl_toklen(tokens, tokens.count[0] + 8));
+	shl_expect_size(check, "toklen(count)", 0, shl_token_toklen(tokens, tokens.count[0]));
+	shl_expect_size(check, "toklen(count+8)", 0, shl_token_toklen(tokens, tokens.count[0] + 8));
 
-	shl_free_tokens(tokens);
+	shl_token_free(tokens);
 }
 
 static void shl_test_null_input(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 
-	shl_tokens nullInput = shl_tokenise(NULL, &opts);
+	shl_tokens nullInput = shl_token_tokenise(NULL, &opts);
 	if(nullInput.items || nullInput.count) { shl_fail(check, "NULL input should return empty tokens"); }
-	shl_free_tokens(nullInput);
+	shl_token_free(nullInput);
 
-	shl_tokens nullOpts = shl_tokenise("a", NULL);
+	shl_tokens nullOpts = shl_token_tokenise("a", NULL);
 	if(nullOpts.items || nullOpts.count) { shl_fail(check, "NULL opts should return empty tokens"); }
-	shl_free_tokens(nullOpts);
+	shl_token_free(nullOpts);
 }
 
 static void shl_test_explicit_size(shl_check* check) {
-	shl_token_opts opts = shl_get_default_opts();
+	shl_token_opts opts = shl_token_get_defaults();
 	opts.size = 5;
 
 	const char* expected[] = { "Hello" };

@@ -71,7 +71,7 @@ typedef struct shl_token_opts {
 	bool keepQuotes;
 } shl_token_opts;
 
-shl_token_opts shl_get_default_opts(void) {
+shl_token_opts shl_token_get_defaults(void) {
 	shl_token_opts opts;
 
 	opts.size = 0;
@@ -90,7 +90,7 @@ shl_token_opts shl_get_default_opts(void) {
 	return opts;
 }
 
-shl_tokens shl_tokenise(const char* tokenise, shl_token_opts* opts) {
+shl_tokens shl_token_tokenise(const char* tokenise, shl_token_opts* opts) {
 	if(!tokenise || !opts) {
 		return (shl_tokens){ NULL, NULL };
 	}
@@ -239,7 +239,7 @@ shl_tokenise_loop_end:
 	return (shl_tokens){ tokPtrrs, metaTokens };
 }
 
-shl_tokens shl_tokenise_file(FILE* file, const shl_token_opts* opts) {
+shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts) {
 	if(!file || !opts) {
 		return (shl_tokens){ NULL, NULL };
 	}
@@ -289,19 +289,19 @@ shl_tokens shl_tokenise_file(FILE* file, const shl_token_opts* opts) {
 	shl_token_opts fileOpts = *opts;
 	fileOpts.size = size;
 
-	shl_tokens tokens = shl_tokenise(buffer, &fileOpts);
+	shl_tokens tokens = shl_token_tokenise(buffer, &fileOpts);
 
 	free(buffer);
 
 	return tokens;
 }
 
-void shl_free_tokens(shl_tokens tokens) {
+void shl_token_free(shl_tokens tokens) {
 	free((void*)tokens.count);
 }
 
 // Faster, because it uses buffered informations.
-size_t shl_toklen(shl_tokens tokens, size_t index) {
+size_t shl_token_toklen(shl_tokens tokens, size_t index) {
 	if(!tokens.count || index >= tokens.count[0]) { return 0; }
 	return tokens.count[index + 1];
 }

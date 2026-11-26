@@ -1,4 +1,8 @@
-dodj support cpp
+Dodaj dobry linker bo tam coś linker może być zły
+
+Dodaj support cpp
+
+Debugging session dla niszowych bugów
 
 Zrob tester human made a nie slop na szybko
 

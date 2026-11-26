@@ -38,6 +38,7 @@
 
 #ifdef SHL_STRING_IMPLEMENTATION
 
+#include <errno.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stddef.h>
@@ -45,12 +46,13 @@
 
 typedef struct shl_string {
 	char* data;
-	const size_t* lenght;
-	const size_t* capasity;
+	const size_t* length;
+	const size_t* capacity;
 } shl_string;
 
 // Not including null term
 shl_string shl_string_create(const char* contents, size_t* size) {
+	if(!size && !contents) { return (shl_string){ NULL, NULL, NULL }; }
 	shl_string string;
 	
 	size_t strerSize = size ? *size : strlen(contents) * sizeof(char);
@@ -61,38 +63,38 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 	if(!alloc) { return (shl_string){ NULL, NULL, NULL }; }
 	string.data = (char*)alloc + (2 * sizeof(size_t));
 
-	alloc[0] = strerLen; string.capasity = &alloc[0];
-	alloc[1] = strerLen; string.lenght = &alloc[1];
+	alloc[0] = strerLen; string.capacity = &alloc[0];
+	alloc[1] = strerLen; string.length = &alloc[1];
 
 	for(size_t i = 0; i < strerLen; i++) {
 		string.data[i] = contents ? contents[i] : '\0';
 	}
-	string.data[strerLen + 1] = '\0';
+	string.data[strerLen] = '\0';
 
 	return string;
 }
 
 void shl_string_free(shl_string string) {
-	free((size_t*)string.capasity);
+	free((size_t*)string.capacity);
 }
 
 shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
-	size_t* alloc = malloc((cap_is_len ? *string.lenght : *string.capasity) + (2 * sizeof(size_t)) + sizeof(char));
+	if(!string.data || !string.capacity || !string.length || string.length > string.capacity) { errno = EINVAL; return (shl_string){ NULL, NULL, NULL }; }
+	size_t* alloc = malloc((cap_is_len ? *string.length : *string.capacity) + (2 * sizeof(size_t)) + sizeof(char));
 	if(!alloc) { return (shl_string){ NULL, NULL, NULL }; }
 	char* alloStr = (char*)alloc + (2 * sizeof(size_t));
 
-	alloc[0] = (cap_is_len ? *string.lenght : *string.capasity);
-	alloc[1] = *string.lenght;
+	alloc[0] = (cap_is_len ? *string.length : *string.capacity);
+	alloc[1] = *string.length;
 
-	for(size_t i = 0; i < alloc[0]; i++) {
+	for(size_t i = 0; i <= *string.length; i++) {
 		alloStr[i] = string.data[i];
 	}
-	alloStr[*string.lenght + 1] = '\0';
 
 	return (shl_string) {
 		.data = alloStr,
-		.capasity = alloc,
-		.lenght = &alloc[1]
+		.capacity = alloc,
+		.length = &alloc[1]
 	};
 }
 

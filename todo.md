@@ -1,3 +1,5 @@
+Upewnij suè źe działa dobre errno
+
 Dodaj dobry linker bo tam coś linker może być zły
 
 Dodaj support cpp

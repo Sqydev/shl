@@ -49,9 +49,85 @@ typedef struct shl_string {
 	const size_t* capacity;
 } shl_string;
 
+// Like strndup: creates a string from text, optionally limited by *size.
 shl_string shl_string_create(const char* contents, size_t* size);
+// Guess.
 void shl_string_free(shl_string* string);
+
+// Like strdup, but takes capacity or length as the new capacity.
 shl_string shl_string_strdup(shl_string string, bool cap_is_len);
+
+// Growth strategies used when a string needs more capacity.
+typedef enum shl_string_growth {
+	SHL_STRING_GROW_LEAP,
+	SHL_STRING_GROW_STEP,
+} shl_string_growth;
+
+// Sets the default growth strategy.
+void shl_string_set_growth(shl_string* string, shl_string_growth growth);
+// Returns the default growth strategy.
+shl_string_growth shl_string_get_growth(shl_string string);
+
+// Ensures room for at least capacity bytes.
+bool shl_string_reserve(shl_string* string, size_t capacity);
+// Shrinking capacity to the current length.
+bool shl_string_tighten(shl_string* string);
+// Sets the length to zero, keeping the capacity.
+bool shl_string_clear(shl_string* string);
+
+// Append csting to shl_string
+bool shl_string_append(shl_string* string, const char* text, shl_string_growth* growth);
+// Append char to shl_string
+bool shl_string_append_char(shl_string* string, char character, shl_string_growth* growth);
+// Append shl_string to shl_string
+bool shl_string_appends(shl_string* string, shl_string source, shl_string_growth* growth);
+
+// Insert cstring to index
+bool shl_string_splice(shl_string* string, size_t index, const char* text);
+// Delete count chars from index
+bool shl_string_scrub(shl_string* string, size_t index, size_t count);
+
+// Strcmp but binary
+bool shl_string_equals(shl_string string, const char* text);
+// Strstr == NULL
+bool shl_string_holds(shl_string string, const char* needle);
+
+// Get alternative version of shl_string where shl_string doesn't exist :0
+const char* shl_string_cstr(shl_string string);
+// Fast strlen()(reads metadata)
+bool shl_string_hollow(shl_string string);
+
+// Strcpy
+bool shl_string_set(shl_string* string, const char* text);
+// Memmove + strncpy
+bool shl_string_mend(shl_string* string, size_t index, size_t count, const char* text);
+// Copy count chars from index
+shl_string shl_string_carve(shl_string string, size_t index, size_t count);
+// Return slice of string from start to end
+shl_string shl_string_weld(shl_string string, size_t start, size_t end);
+
+// Strcmp
+int shl_string_compare(shl_string string, const char* text);
+// Strcmp for two shl_strings
+bool shl_string_compares(shl_string a, shl_string b);
+// Strncmp from start
+bool shl_string_begins(shl_string string, const char* prefix);
+// Strcmp from end
+bool shl_string_closes(shl_string string, const char* suffix);
+
+// Needle not found
+#define SHL_STRING_NPOS ((size_t)-1)
+// Strstr but index
+size_t shl_string_seek(shl_string string, const char* needle);
+// Count strstr hits
+size_t shl_string_echoes(shl_string string, const char* needle);
+
+// Toupper each char, new string
+shl_string shl_string_raise(shl_string string);
+// Tolower each char, new string
+shl_string shl_string_lower(shl_string string);
+// Strip whitespace from both ends
+bool shl_string_trim(shl_string* string);
 
 #ifdef __cplusplus
 }
@@ -69,7 +145,6 @@ static shl_string shl_string_empty(void) {
 	return empty;
 }
 
-// Not including null term
 shl_string shl_string_create(const char* contents, size_t* size) {
 	if(!size && !contents) { errno = EINVAL; return shl_string_empty(); }
 	shl_string string;
@@ -86,7 +161,6 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 		return shl_string_empty();
 	}
 
-	// + null
 	size_t* alloc = (size_t*)malloc(strerSize + (2 * sizeof(size_t)) + sizeof(char));
 	if(!alloc) { errno = ENOMEM; return shl_string_empty(); }
 	string.data = (char*)alloc + (2 * sizeof(size_t));
@@ -131,9 +205,11 @@ shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
 	alloStr[*string.length] = '\0';
 
 	shl_string result;
+
 	result.data = alloStr;
 	result.length = &alloc[1];
 	result.capacity = alloc;
+
 	return result;
 }
 

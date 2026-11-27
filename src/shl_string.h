@@ -64,16 +64,6 @@ shl_string shl_string_strdup(shl_string string, bool cap_is_len);
 #include <stdint.h>
 #include <stdlib.h>
 
-#ifndef EINVAL
-#define EINVAL EDOM
-#endif
-#ifndef EOVERFLOW
-#define EOVERFLOW ERANGE
-#endif
-#ifndef ENOMEM
-#define ENOMEM ERANGE
-#endif
-
 static shl_string shl_string_empty(void) {
 	shl_string empty = { NULL, NULL, NULL };
 	return empty;

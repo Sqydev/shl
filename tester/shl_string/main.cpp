@@ -11,8 +11,11 @@ int main() {
 	shl_string copy = shl_string_strdup(string, false);
 	if(!copy.data || *copy.length != 5 || *copy.capacity != 5) { return 1; }
 	if(std::memcmp(copy.data, "hello", 5) != 0) { return 1; }
+	if(string.data[5] != '\0' || copy.data[5] != '\0') { return 1; }
 
-	shl_string_free(copy);
-	shl_string_free(string);
+	shl_string_free(&copy);
+	shl_string_free(&copy);
+	shl_string_free(&string);
+	if(copy.data || copy.length || copy.capacity) { return 1; }
 	return 0;
 }

@@ -425,6 +425,62 @@ static void shl_test_ftokenise_terminator(shl_check* check) {
 	shl_token_free(tokens);
 }
 
+static void shl_test_escape_equals_quote(shl_check* check) {
+	shl_token_opts opts = shl_token_get_defaults();
+	opts.quetesChar = '"';
+	opts.quouteEscapeChar = '"';
+
+	const char* withQuotes[] = { "\"x\" y" };
+	shl_check_tokens(check, "\"x\"\" y", opts, withQuotes, 1);
+
+	opts.keepQuotes = false;
+	const char* withoutQuotes[] = { "x\" y" };
+	shl_check_tokens(check, "\"x\"\" y", opts, withoutQuotes, 1);
+
+	const char* escapedStart[] = { "\"", "x" };
+	shl_check_tokens(check, "\"\" x", opts, escapedStart, 2);
+}
+
+static void shl_test_const_opts(shl_check* check) {
+	const shl_token_opts opts = shl_token_get_defaults();
+	shl_tokens tokens = shl_token_tokenise("a b", &opts);
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "tokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "count", 2, tokens.count[0]);
+	shl_token_free(tokens);
+}
+
+static void shl_test_ftokenise_embedded_nul(shl_check* check) {
+	FILE* file = tmpfile();
+	if(!file) { shl_fail(check, "tmpfile failed"); return; }
+
+	const char contents[] = { 'a', '\0', 'b', ' ', 'c' };
+	if(fwrite(contents, 1, sizeof(contents), file) != sizeof(contents)) {
+		fclose(file);
+		shl_fail(check, "fwrite failed");
+		return;
+	}
+	rewind(file);
+
+	shl_token_opts opts = shl_token_get_defaults();
+	shl_tokens tokens = shl_token_ftokenise(file, &opts);
+	fclose(file);
+
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "ftokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "count", 1, tokens.count[0]);
+	shl_expect_size(check, "toklen", 1, shl_token_toklen(tokens, 0));
+	if(memcmp(tokens.items[0], "a", 1) != 0) { shl_fail(check, "token[0] mismatch"); }
+
+	shl_token_free(tokens);
+}
+
 static const shl_fn_test fnTests[] = {
 	{ "F01", "Default options", shl_test_default_opts },
 	{ "F02", "toklen basic", shl_test_toklen },
@@ -440,6 +496,9 @@ static const shl_fn_test fnTests[] = {
 	{ "F12", "ftokenise basic", shl_test_ftokenise },
 	{ "F13", "ftokenise size limit", shl_test_ftokenise_size_limit },
 	{ "F14", "ftokenise terminator", shl_test_ftokenise_terminator },
+	{ "F15", "escape char equals quote char", shl_test_escape_equals_quote },
+	{ "F16", "const opts", shl_test_const_opts },
+	{ "F17", "ftokenise embedded NUL", shl_test_ftokenise_embedded_nul },
 };
 
 static void shl_separator(const char* title) {

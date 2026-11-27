@@ -50,7 +50,7 @@ typedef struct shl_string {
 } shl_string;
 
 shl_string shl_string_create(const char* contents, size_t* size);
-void shl_string_free(shl_string string);
+void shl_string_free(shl_string* string);
 shl_string shl_string_strdup(shl_string string, bool cap_is_len);
 
 #ifdef __cplusplus
@@ -64,6 +64,16 @@ shl_string shl_string_strdup(shl_string string, bool cap_is_len);
 #include <stdint.h>
 #include <stdlib.h>
 
+#ifndef EINVAL
+#define EINVAL EDOM
+#endif
+#ifndef EOVERFLOW
+#define EOVERFLOW ERANGE
+#endif
+#ifndef ENOMEM
+#define ENOMEM ERANGE
+#endif
+
 static shl_string shl_string_empty(void) {
 	shl_string empty = { NULL, NULL, NULL };
 	return empty;
@@ -75,6 +85,10 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 	shl_string string;
 	
 	size_t strerSize = size ? *size : strlen(contents) * sizeof(char);
+	if(contents && size) {
+		size_t available = strlen(contents);
+		if(strerSize > available) { strerSize = available; }
+	}
 	size_t strerLen = strerSize / sizeof(char);
 
 	if(strerSize > SIZE_MAX - (2 * sizeof(size_t)) - sizeof(char)) {
@@ -84,7 +98,7 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 
 	// + null
 	size_t* alloc = (size_t*)malloc(strerSize + (2 * sizeof(size_t)) + sizeof(char));
-	if(!alloc) { return shl_string_empty(); }
+	if(!alloc) { errno = ENOMEM; return shl_string_empty(); }
 	string.data = (char*)alloc + (2 * sizeof(size_t));
 
 	alloc[0] = strerLen; string.capacity = &alloc[0];
@@ -98,8 +112,12 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 	return string;
 }
 
-void shl_string_free(shl_string string) {
-	free((size_t*)string.capacity);
+void shl_string_free(shl_string* string) {
+	if(!string || !string->capacity) { return; }
+	free((void*)string->capacity);
+	string->data = NULL;
+	string->length = NULL;
+	string->capacity = NULL;
 }
 
 shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
@@ -110,15 +128,17 @@ shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
 		return shl_string_empty();
 	}
 	size_t* alloc = (size_t*)malloc(capacity + (2 * sizeof(size_t)) + sizeof(char));
-	if(!alloc) { return shl_string_empty(); }
+	if(!alloc) { errno = ENOMEM; return shl_string_empty(); }
 	char* alloStr = (char*)alloc + (2 * sizeof(size_t));
+	memset(alloStr, '\0', capacity + 1);
 
 	alloc[0] = capacity;
 	alloc[1] = *string.length;
 
-	for(size_t i = 0; i <= *string.length; i++) {
+	for(size_t i = 0; i < *string.length; i++) {
 		alloStr[i] = string.data[i];
 	}
+	alloStr[*string.length] = '\0';
 
 	shl_string result;
 	result.data = alloStr;

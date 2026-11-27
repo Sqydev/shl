@@ -74,10 +74,13 @@ cpp_tester_main = tester_dir / 'main.cpp'
 if fs.exists(cpp_tester_main)
 	add_languages('cpp', native: false)
 
+	cpp = meson.get_compiler('cpp')
+
 	cpp_tester = executable(
 		lib + '_cpp_tester',
 		cpp_tester_main,
 		dependencies: lib_dep,
+		cpp_args: cpp.get_supported_arguments('-fno-sanitize-recover=all'),
 		install: false,
 	)
 

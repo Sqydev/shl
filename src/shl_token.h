@@ -65,7 +65,7 @@ typedef struct shl_token_opts {
 } shl_token_opts;
 
 shl_token_opts shl_token_get_defaults(void);
-shl_tokens shl_token_tokenise(const char* tokenise, shl_token_opts* opts);
+shl_tokens shl_token_tokenise(const char* tokenise, const shl_token_opts* opts);
 shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts);
 void shl_token_free(shl_tokens tokens);
 size_t shl_token_toklen(shl_tokens tokens, size_t index);
@@ -79,7 +79,6 @@ size_t shl_token_toklen(shl_tokens tokens, size_t index);
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <limits.h>
 
 #ifdef SHL_TOKEN_DEBUG
 	#define SHL_TOKEN_DEBUG_PRINT(...) printf(__VA_ARGS__)
@@ -111,158 +110,115 @@ shl_token_opts shl_token_get_defaults(void) {
 	return opts;
 }
 
-shl_tokens shl_token_tokenise(const char* tokenise, shl_token_opts* opts) {
+typedef struct shl_token_state {
+	const shl_token_opts* opts;
+	size_t count;
+	size_t tokenLen;
+	size_t written;
+	bool inToken;
+	bool quoted;
+} shl_token_state;
+
+static void shl_token_begin(shl_token_state* state, char* out, char** ptrs) {
+	if(state->inToken) { return; }
+	if(ptrs) { ptrs[state->count] = out + state->written; }
+	state->inToken = true;
+}
+
+static void shl_token_put(shl_token_state* state, char c, char* out) {
+	if(out) { out[state->written] = c; }
+	state->written++;
+	state->tokenLen++;
+}
+
+static void shl_token_end(shl_token_state* state, char* out, size_t* lengths) {
+	if(!state->inToken) { return; }
+	if(out) { out[state->written] = state->opts->nullTerminatorOut; }
+	state->written++;
+	if(lengths) { lengths[state->count] = state->tokenLen; }
+	state->count++;
+	state->inToken = false;
+	state->tokenLen = 0;
+}
+
+static size_t shl_token_step(shl_token_state* state, char c, bool hasNext, char next, char* out, char** ptrs, size_t* lengths) {
+	const shl_token_opts* opts = state->opts;
+
+	if(opts->quouteEscape && c == opts->quouteEscapeChar && hasNext && (next == opts->quetesChar || next == opts->quouteEscapeChar)) {
+		if(!state->quoted && next == opts->separator) {
+			shl_token_end(state, out, lengths);
+		} else {
+			shl_token_begin(state, out, ptrs);
+			shl_token_put(state, next, out);
+		}
+		return 2;
+	}
+
+	if(opts->quotes && c == opts->quetesChar) {
+		shl_token_begin(state, out, ptrs);
+		state->quoted = !state->quoted;
+		if(opts->keepQuotes) { shl_token_put(state, c, out); }
+		return 1;
+	}
+
+	if(!state->quoted && c == opts->separator) {
+		shl_token_end(state, out, lengths);
+		return 1;
+	}
+
+	shl_token_begin(state, out, ptrs);
+	shl_token_put(state, c, out);
+	return 1;
+}
+
+shl_tokens shl_token_tokenise(const char* tokenise, const shl_token_opts* opts) {
 	if(!tokenise || !opts) {
 		return shl_tokens_empty();
 	}
-	size_t oryginalLen = opts->size;
-	size_t separatorCount = 0;
-	size_t tokensCount = 0;
-	(void)separatorCount;
 
-	{
-		size_t i = 0;
-		const char* ptrr = tokenise;
-
-		bool inToken = false;
-		bool quouted = false;
-
-		while(opts->size == 0 ? *ptrr != opts->nullTerminatorIn : i < opts->size) {
-			if(opts->quouteEscape && *ptrr == opts->quouteEscapeChar) {
-				if(i + 1 < oryginalLen || opts->size == 0) {
-					if(*(ptrr + 1) == opts->quetesChar || *(ptrr + 1) == opts->quouteEscapeChar) {
-						char escaped = *(ptrr + 1);
-						if(!quouted && escaped == opts->separator) {
-							inToken = false;
-						} else if(!inToken) {
-							inToken = true;
-							tokensCount++;
-						}
-						i++;
-						ptrr++;
-						goto shl_tokenise_loop_end;
-					}
-				}
-			}
-
-			if(opts->quotes && *ptrr == opts->quetesChar) {
-				if(!inToken) {
-					inToken = true;
-					tokensCount++;
-				}
-				
-				quouted = !quouted;
-
-				goto shl_tokenise_loop_end;
-			}
-
-			if(!quouted && *ptrr == opts->separator) {
-				inToken = false;
-
-				separatorCount++;
-				goto shl_tokenise_loop_end;
-			}
-
-			if(!inToken) {
-				inToken = true;
-				tokensCount++;
-			}
-
-shl_tokenise_loop_end:
-			SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] i=%zu char='%c' inToken=%d quoted=%d\n", i, *ptrr, inToken, quouted);
-			i++;
-			ptrr += sizeof(char);
-		}
-		if(oryginalLen == 0) { oryginalLen = i; }
-	}
-	size_t oryginalSize = oryginalLen + 1;
-
-	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
-
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] Scanned string to tokenise:\n");
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] tokenise: {%.*s}\n", (int)(oryginalLen < INT_MAX ? oryginalLen : INT_MAX), tokenise);
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] \noryginalLen: %zu\n", oryginalLen);
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] oryginalSize: %zu\n", oryginalSize);
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] \nseparatorCount: %zu\n", separatorCount);
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] tokensCount: %zu\n", tokensCount);
-
-	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
-
-	// + nullTerm
-	size_t tokensSize = (oryginalSize * sizeof(char)) + (tokensCount * sizeof(char));
-	// + tokensCount
-	size_t metadataSize = (tokensCount + 1) * sizeof(size_t);
-	size_t tokPtrSize = tokensCount * sizeof(char*);
-
-	if(metadataSize > SIZE_MAX - tokPtrSize || metadataSize + tokPtrSize > SIZE_MAX - tokensSize) {
-		return shl_tokens_empty();
+	size_t scanLen = opts->size;
+	if(scanLen == 0) {
+		const char* terminator = strchr(tokenise, opts->nullTerminatorIn);
+		scanLen = terminator ? (size_t)(terminator - tokenise) : strlen(tokenise);
+	} else if(opts->nullTerminatorIn != '\0') {
+		const char* terminator = (const char*)memchr(tokenise, opts->nullTerminatorIn, scanLen);
+		if(terminator) { scanLen = (size_t)(terminator - tokenise); }
 	}
 
-	// meta -> tokensPtrs -> tokens
-	void* allocation = malloc(metadataSize + tokPtrSize + tokensSize);
+	shl_token_state countState = { opts, 0, 0, 0, false, false };
+	size_t i = 0;
+	while(i < scanLen) {
+		bool hasNext = i + 1 < scanLen;
+		i += shl_token_step(&countState, tokenise[i], hasNext, hasNext ? tokenise[i + 1] : '\0', NULL, NULL, NULL);
+	}
+	shl_token_end(&countState, NULL, NULL);
+
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] scanned=%zu tokens=%zu bytes=%zu\n", scanLen, countState.count, countState.written);
+
+	if(countState.count > (SIZE_MAX - sizeof(size_t)) / sizeof(size_t)) { return shl_tokens_empty(); }
+	size_t metadataSize = (countState.count + 1) * sizeof(size_t);
+	if(metadataSize > SIZE_MAX - countState.written) { return shl_tokens_empty(); }
+	size_t dataOffset = metadataSize + countState.written;
+	if(countState.count > (SIZE_MAX - dataOffset) / sizeof(char*)) { return shl_tokens_empty(); }
+	size_t tokPtrSize = countState.count * sizeof(char*);
+	size_t allocationSize = dataOffset + tokPtrSize;
+
+	void* allocation = malloc(allocationSize);
 	if(!allocation) { return shl_tokens_empty(); }
 
 	size_t* metaTokens = (size_t*)allocation;
 	char** tokPtrrs = (char**)((char*)allocation + metadataSize);
-	char* tokenst = (char*)((char*)allocation + metadataSize + tokPtrSize);
+	char* tokenst = (char*)allocation + metadataSize + tokPtrSize;
 
-	metaTokens[0] = tokensCount;
+	metaTokens[0] = countState.count;
 
-	{
-		size_t currCount = 0;
-		size_t tokenOffset = 0;
-		size_t tokenLen = 0;
-		bool inToken = false;
-		bool quouted = false;
-		for(size_t i = 0; i < oryginalLen; i++) {
-			char c = tokenise[i];
-
-			if(opts->quotes && c == opts->quetesChar) {
-				if(!inToken) {
-					tokPtrrs[currCount] = tokenst + tokenOffset;
-					inToken = true;
-				}
-
-				quouted = !quouted;
-
-				if(!opts->keepQuotes) {
-					continue;
-				}
-			}
-
-			if(opts->quouteEscape && c == opts->quouteEscapeChar && i + 1 < oryginalLen) {
-				if(tokenise[i + 1] == opts->quetesChar || tokenise[i + 1] == opts->quouteEscapeChar) {
-					i++;
-					c = tokenise[i];
-				}
-			}
-
-			if(!quouted && c == opts->separator) {
-				if(inToken) {
-					tokenst[tokenOffset++] = opts->nullTerminatorOut;
-					metaTokens[currCount + 1] = tokenLen;
-					currCount++;
-					inToken = false;
-					tokenLen = 0;
-				}
-				continue;
-			}
-	
-			if(!inToken) {
-				tokPtrrs[currCount] = tokenst + tokenOffset;
-				inToken = true;
-			}
-			tokenst[tokenOffset++] = c;
-			tokenLen++;
-		}
-
-		if(inToken) {
-			tokenst[tokenOffset++] = opts->nullTerminatorOut;
-			metaTokens[currCount + 1] = tokenLen;
-			currCount++;
-		}
-
+	shl_token_state writeState = { opts, 0, 0, 0, false, false };
+	i = 0;
+	while(i < scanLen) {
+		bool hasNext = i + 1 < scanLen;
+		i += shl_token_step(&writeState, tokenise[i], hasNext, hasNext ? tokenise[i + 1] : '\0', tokenst, tokPtrrs, metaTokens + 1);
 	}
+	shl_token_end(&writeState, tokenst, metaTokens + 1);
 
 	shl_tokens result;
 	result.items = tokPtrrs;
@@ -317,10 +273,8 @@ shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts) {
 
 	buffer[size] = '\0';
 
-	if(opts->nullTerminatorIn != '\0') {
-		const char* terminator = (const char*)memchr(buffer, opts->nullTerminatorIn, size);
-		if(terminator) { size = (size_t)(terminator - buffer); }
-	}
+	const char* terminator = (const char*)memchr(buffer, opts->nullTerminatorIn, size);
+	if(terminator) { size = (size_t)(terminator - buffer); }
 
 	shl_token_opts fileOpts = *opts;
 	fileOpts.size = size;

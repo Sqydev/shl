@@ -30,6 +30,7 @@ while IFS= read -r -d '' file; do
         } > "$tmp"
     fi
 
+    chmod --reference="$file" "$tmp"
     mv "$tmp" "$file"
     echo "Added/fixed license header: ${file#"$repo_root"/}"
     fixed=$((fixed + 1))

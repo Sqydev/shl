@@ -36,19 +36,12 @@
 #ifndef SHL_TOKEN_INCLUDED
 #define SHL_TOKEN_INCLUDED
 
-#ifdef SHL_TOKEN_IMPLEMENTATION
-
-#include <string.h>
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 
-#ifdef SHL_TOKEN_DEBUG
-	#define SHL_TOKEN_DEBUG_PRINT(...) printf(__VA_ARGS__)
-#else
-	#define SHL_TOKEN_DEBUG_PRINT(...)
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 typedef struct shl_tokens {
@@ -71,6 +64,34 @@ typedef struct shl_token_opts {
 	bool keepQuotes;
 } shl_token_opts;
 
+shl_token_opts shl_token_get_defaults(void);
+shl_tokens shl_token_tokenise(const char* tokenise, shl_token_opts* opts);
+shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts);
+void shl_token_free(shl_tokens tokens);
+size_t shl_token_toklen(shl_tokens tokens, size_t index);
+
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef SHL_TOKEN_IMPLEMENTATION
+
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <limits.h>
+
+#ifdef SHL_TOKEN_DEBUG
+	#define SHL_TOKEN_DEBUG_PRINT(...) printf(__VA_ARGS__)
+#else
+	#define SHL_TOKEN_DEBUG_PRINT(...)
+#endif
+
+static shl_tokens shl_tokens_empty(void) {
+	shl_tokens empty = { NULL, NULL };
+	return empty;
+}
+
 shl_token_opts shl_token_get_defaults(void) {
 	shl_token_opts opts;
 
@@ -92,7 +113,7 @@ shl_token_opts shl_token_get_defaults(void) {
 
 shl_tokens shl_token_tokenise(const char* tokenise, shl_token_opts* opts) {
 	if(!tokenise || !opts) {
-		return (shl_tokens){ NULL, NULL };
+		return shl_tokens_empty();
 	}
 	size_t oryginalLen = opts->size;
 	size_t separatorCount = 0;
@@ -110,6 +131,13 @@ shl_tokens shl_token_tokenise(const char* tokenise, shl_token_opts* opts) {
 			if(opts->quouteEscape && *ptrr == opts->quouteEscapeChar) {
 				if(i + 1 < oryginalLen || opts->size == 0) {
 					if(*(ptrr + 1) == opts->quetesChar || *(ptrr + 1) == opts->quouteEscapeChar) {
+						char escaped = *(ptrr + 1);
+						if(!quouted && escaped == opts->separator) {
+							inToken = false;
+						} else if(!inToken) {
+							inToken = true;
+							tokensCount++;
+						}
 						i++;
 						ptrr++;
 						goto shl_tokenise_loop_end;
@@ -152,7 +180,7 @@ shl_tokenise_loop_end:
 	SHL_TOKEN_DEBUG_PRINT("\n\n\n");
 
 	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] Scanned string to tokenise:\n");
-	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] tokenise: {%s}\n", tokenise);
+	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] tokenise: {%.*s}\n", (int)(oryginalLen < INT_MAX ? oryginalLen : INT_MAX), tokenise);
 	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] \noryginalLen: %zu\n", oryginalLen);
 	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] oryginalSize: %zu\n", oryginalSize);
 	SHL_TOKEN_DEBUG_PRINT("[SHL_TOKEN_DEBUG] \nseparatorCount: %zu\n", separatorCount);
@@ -167,14 +195,14 @@ shl_tokenise_loop_end:
 	size_t tokPtrSize = tokensCount * sizeof(char*);
 
 	if(metadataSize > SIZE_MAX - tokPtrSize || metadataSize + tokPtrSize > SIZE_MAX - tokensSize) {
-		return (shl_tokens){ NULL, NULL };
+		return shl_tokens_empty();
 	}
 
 	// meta -> tokensPtrs -> tokens
 	void* allocation = malloc(metadataSize + tokPtrSize + tokensSize);
-	if(!allocation) { return (shl_tokens){ NULL, NULL }; }
+	if(!allocation) { return shl_tokens_empty(); }
 
-	size_t* metaTokens = allocation;
+	size_t* metaTokens = (size_t*)allocation;
 	char** tokPtrrs = (char**)((char*)allocation + metadataSize);
 	char* tokenst = (char*)((char*)allocation + metadataSize + tokPtrSize);
 
@@ -236,34 +264,37 @@ shl_tokenise_loop_end:
 
 	}
 
-	return (shl_tokens){ tokPtrrs, metaTokens };
+	shl_tokens result;
+	result.items = tokPtrrs;
+	result.count = metaTokens;
+	return result;
 }
 
 shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts) {
 	if(!file || !opts) {
-		return (shl_tokens){ NULL, NULL };
+		return shl_tokens_empty();
 	}
 
+	size_t limit = opts->size ? opts->size : SIZE_MAX;
 	size_t capacity = 64 * 1024;
+	if(capacity > limit) { capacity = limit; }
 	size_t size = 0;
 
-	char* buffer = malloc(capacity + 1);
+	char* buffer = (char*)malloc(capacity + 1);
 	if(!buffer) {
-		return (shl_tokens){ NULL, NULL };
+		return shl_tokens_empty();
 	}
 
-	while(true) {
+	while(size < limit) {
 		if(size == capacity) {
-			if(capacity >= SIZE_MAX / 2) {
-				free(buffer);
-				return (shl_tokens){ NULL, NULL };
-			}
+			if(capacity >= SIZE_MAX / 2) { break; }
 
 			size_t newCapacity = capacity * 2;
-			char* tmp = realloc(buffer, newCapacity + 1);
+			if(newCapacity > limit) { newCapacity = limit; }
+			char* tmp = (char*)realloc(buffer, newCapacity + 1);
 			if(!tmp) {
 				free(buffer);
-				return (shl_tokens){ NULL, NULL };
+				return shl_tokens_empty();
 			}
 
 			buffer = tmp;
@@ -276,7 +307,7 @@ shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts) {
 
 		if(ferror(file)) {
 			free(buffer);
-			return (shl_tokens){ NULL, NULL };
+			return shl_tokens_empty();
 		}
 
 		if(read < requested) {
@@ -285,6 +316,11 @@ shl_tokens shl_token_ftokenise(FILE* file, const shl_token_opts* opts) {
 	}
 
 	buffer[size] = '\0';
+
+	if(opts->nullTerminatorIn != '\0') {
+		const char* terminator = (const char*)memchr(buffer, opts->nullTerminatorIn, size);
+		if(terminator) { size = (size_t)(terminator - buffer); }
+	}
 
 	shl_token_opts fileOpts = *opts;
 	fileOpts.size = size;

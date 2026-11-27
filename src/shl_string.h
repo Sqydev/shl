@@ -36,13 +36,12 @@
 #ifndef SHL_STRING_INCLUDED
 #define SHL_STRING_INCLUDED
 
-#ifdef SHL_STRING_IMPLEMENTATION
-
-#include <errno.h>
 #include <stdbool.h>
-#include <string.h>
 #include <stddef.h>
-#include <stdlib.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct shl_string {
 	char* data;
@@ -50,17 +49,42 @@ typedef struct shl_string {
 	const size_t* capacity;
 } shl_string;
 
+shl_string shl_string_create(const char* contents, size_t* size);
+void shl_string_free(shl_string string);
+shl_string shl_string_strdup(shl_string string, bool cap_is_len);
+
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef SHL_STRING_IMPLEMENTATION
+
+#include <errno.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+static shl_string shl_string_empty(void) {
+	shl_string empty = { NULL, NULL, NULL };
+	return empty;
+}
+
 // Not including null term
 shl_string shl_string_create(const char* contents, size_t* size) {
-	if(!size && !contents) { return (shl_string){ NULL, NULL, NULL }; }
+	if(!size && !contents) { errno = EINVAL; return shl_string_empty(); }
 	shl_string string;
 	
 	size_t strerSize = size ? *size : strlen(contents) * sizeof(char);
 	size_t strerLen = strerSize / sizeof(char);
 
+	if(strerSize > SIZE_MAX - (2 * sizeof(size_t)) - sizeof(char)) {
+		errno = EOVERFLOW;
+		return shl_string_empty();
+	}
+
 	// + null
-	size_t* alloc = malloc(strerSize + (2 * sizeof(size_t)) + sizeof(char));
-	if(!alloc) { return (shl_string){ NULL, NULL, NULL }; }
+	size_t* alloc = (size_t*)malloc(strerSize + (2 * sizeof(size_t)) + sizeof(char));
+	if(!alloc) { return shl_string_empty(); }
 	string.data = (char*)alloc + (2 * sizeof(size_t));
 
 	alloc[0] = strerLen; string.capacity = &alloc[0];
@@ -79,23 +103,28 @@ void shl_string_free(shl_string string) {
 }
 
 shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
-	if(!string.data || !string.capacity || !string.length || string.length > string.capacity) { errno = EINVAL; return (shl_string){ NULL, NULL, NULL }; }
-	size_t* alloc = malloc((cap_is_len ? *string.length : *string.capacity) + (2 * sizeof(size_t)) + sizeof(char));
-	if(!alloc) { return (shl_string){ NULL, NULL, NULL }; }
+	if(!string.data || !string.capacity || !string.length || *string.length > *string.capacity) { errno = EINVAL; return shl_string_empty(); }
+	size_t capacity = cap_is_len ? *string.length : *string.capacity;
+	if(capacity > SIZE_MAX - (2 * sizeof(size_t)) - sizeof(char)) {
+		errno = EOVERFLOW;
+		return shl_string_empty();
+	}
+	size_t* alloc = (size_t*)malloc(capacity + (2 * sizeof(size_t)) + sizeof(char));
+	if(!alloc) { return shl_string_empty(); }
 	char* alloStr = (char*)alloc + (2 * sizeof(size_t));
 
-	alloc[0] = (cap_is_len ? *string.length : *string.capacity);
+	alloc[0] = capacity;
 	alloc[1] = *string.length;
 
 	for(size_t i = 0; i <= *string.length; i++) {
 		alloStr[i] = string.data[i];
 	}
 
-	return (shl_string) {
-		.data = alloStr,
-		.capacity = alloc,
-		.length = &alloc[1]
-	};
+	shl_string result;
+	result.data = alloStr;
+	result.length = &alloc[1];
+	result.capacity = alloc;
+	return result;
 }
 
 #endif

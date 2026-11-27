@@ -60,15 +60,26 @@ if fs.exists(lib_source)
 	lib_dep = declare_dependency(link_with: static_library('shl_' + lib, lib_source, include_directories: include), include_directories: include)
 endif
 
-add_project_arguments(
-	'-DSHL_TOKEN_DEBUG',
-	'-D' + lib.to_upper() + '_IMPLEMENTATION',
-	language: 'c',
-)
-
-executable(
+tester = executable(
 	lib + '_tester',
 	tester_main,
 	dependencies: lib_dep,
+	c_args: ['-D' + lib.to_upper() + '_IMPLEMENTATION'],
 	install: false,
 )
+
+test(lib + '_test', tester)
+
+cpp_tester_main = tester_dir / 'main.cpp'
+if fs.exists(cpp_tester_main)
+	add_languages('cpp', native: false)
+
+	cpp_tester = executable(
+		lib + '_cpp_tester',
+		cpp_tester_main,
+		dependencies: lib_dep,
+		install: false,
+	)
+
+	test(lib + '_cpp_test', cpp_tester)
+endif

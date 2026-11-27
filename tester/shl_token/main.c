@@ -326,6 +326,105 @@ static void shl_test_explicit_size(shl_check* check) {
 	shl_check_tokens(check, "Hello world", opts, expected, 1);
 }
 
+static void shl_test_escape_at_token_start(shl_check* check) {
+	shl_token_opts opts = shl_token_get_defaults();
+	const char* expected[] = { "\"" };
+
+	shl_check_tokens(check, "\\\"", opts, expected, 1);
+
+	opts.keepQuotes = false;
+	shl_check_tokens(check, "\\\"", opts, expected, 1);
+}
+
+static void shl_test_escape_after_separator(shl_check* check) {
+	shl_token_opts opts = shl_token_get_defaults();
+	const char* expected[] = { "a", "\"" };
+
+	shl_check_tokens(check, "a \\\"", opts, expected, 2);
+}
+
+static void shl_test_escape_of_separator(shl_check* check) {
+	shl_token_opts opts = shl_token_get_defaults();
+	opts.quotes = false;
+	opts.separator = '"';
+	const char* expected[] = { "a", "b" };
+
+	shl_check_tokens(check, "a\\\"b", opts, expected, 2);
+}
+
+static void shl_test_ftokenise(shl_check* check) {
+	FILE* file = tmpfile();
+	if(!file) { shl_fail(check, "tmpfile failed"); return; }
+
+	fputs("Hello world", file);
+	rewind(file);
+
+	shl_token_opts opts = shl_token_get_defaults();
+	shl_tokens tokens = shl_token_ftokenise(file, &opts);
+	fclose(file);
+
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "ftokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "count", 2, tokens.count[0]);
+	shl_expect_size(check, "token[0] length", 5, shl_token_toklen(tokens, 0));
+	shl_expect_size(check, "token[1] length", 5, shl_token_toklen(tokens, 1));
+	if(memcmp(tokens.items[0], "Hello", 5) != 0) { shl_fail(check, "token[0] mismatch"); }
+	if(memcmp(tokens.items[1], "world", 5) != 0) { shl_fail(check, "token[1] mismatch"); }
+
+	shl_token_free(tokens);
+}
+
+static void shl_test_ftokenise_size_limit(shl_check* check) {
+	FILE* file = tmpfile();
+	if(!file) { shl_fail(check, "tmpfile failed"); return; }
+
+	fputs("Hello world", file);
+	rewind(file);
+
+	shl_token_opts opts = shl_token_get_defaults();
+	opts.size = 5;
+	shl_tokens tokens = shl_token_ftokenise(file, &opts);
+	fclose(file);
+
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "ftokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "count", 1, tokens.count[0]);
+	shl_expect_size(check, "toklen", 5, shl_token_toklen(tokens, 0));
+	if(memcmp(tokens.items[0], "Hello", 5) != 0) { shl_fail(check, "token[0] mismatch"); }
+
+	shl_token_free(tokens);
+}
+
+static void shl_test_ftokenise_terminator(shl_check* check) {
+	FILE* file = tmpfile();
+	if(!file) { shl_fail(check, "tmpfile failed"); return; }
+
+	fputs("a|b c", file);
+	rewind(file);
+
+	shl_token_opts opts = shl_token_get_defaults();
+	opts.nullTerminatorIn = '|';
+	shl_tokens tokens = shl_token_ftokenise(file, &opts);
+	fclose(file);
+
+	if(!tokens.items || !tokens.count) {
+		shl_fail(check, "ftokenise returned NULL");
+		return;
+	}
+
+	shl_expect_size(check, "count", 1, tokens.count[0]);
+	shl_expect_size(check, "toklen", 1, shl_token_toklen(tokens, 0));
+	if(memcmp(tokens.items[0], "a", 1) != 0) { shl_fail(check, "token[0] mismatch"); }
+
+	shl_token_free(tokens);
+}
+
 static const shl_fn_test fnTests[] = {
 	{ "F01", "Default options", shl_test_default_opts },
 	{ "F02", "toklen basic", shl_test_toklen },
@@ -335,6 +434,12 @@ static const shl_fn_test fnTests[] = {
 	{ "F06", "toklen out of range", shl_test_toklen_out_of_range },
 	{ "F07", "NULL input and opts", shl_test_null_input },
 	{ "F08", "Explicit size", shl_test_explicit_size },
+	{ "F09", "Escape at token start", shl_test_escape_at_token_start },
+	{ "F10", "Escape after separator", shl_test_escape_after_separator },
+	{ "F11", "Escape of separator", shl_test_escape_of_separator },
+	{ "F12", "ftokenise basic", shl_test_ftokenise },
+	{ "F13", "ftokenise size limit", shl_test_ftokenise_size_limit },
+	{ "F14", "ftokenise terminator", shl_test_ftokenise_terminator },
 };
 
 static void shl_separator(const char* title) {

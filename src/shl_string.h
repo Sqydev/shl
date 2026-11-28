@@ -43,30 +43,24 @@
 extern "C" {
 #endif
 
-typedef struct shl_string {
-	char* data;
-	const size_t* length;
-	const size_t* capacity;
-} shl_string;
-
-// Like strndup: creates a string from text, optionally limited by *size.
-shl_string shl_string_create(const char* contents, size_t* size);
-// Guess.
-void shl_string_free(shl_string* string);
-
-// Like strdup, but takes capacity or length as the new capacity.
-shl_string shl_string_strdup(shl_string string, bool cap_is_len);
-
 // Growth strategies used when a string needs more capacity.
 typedef enum shl_string_growth {
 	SHL_STRING_GROW_LEAP,
 	SHL_STRING_GROW_STEP,
 } shl_string_growth;
 
-// Sets the default growth strategy.
-void shl_string_set_growth(shl_string* string, shl_string_growth growth);
-// Returns the default growth strategy.
-shl_string_growth shl_string_get_growth(shl_string string);
+typedef struct shl_string {
+	char* data;
+	const size_t* length;
+	const size_t* capacity;
+
+	shl_string_growth growth;
+} shl_string;
+
+shl_string shl_string_create(const char* contents, size_t* size);
+void shl_string_free(shl_string* string);
+
+shl_string shl_string_strdup(shl_string string, bool cap_is_len);
 
 // Ensures room for at least capacity bytes.
 bool shl_string_reserve(shl_string* string, size_t capacity);
@@ -115,8 +109,6 @@ bool shl_string_begins(shl_string string, const char* prefix);
 // Strcmp from end
 bool shl_string_closes(shl_string string, const char* suffix);
 
-// Needle not found
-#define SHL_STRING_NPOS ((size_t)-1)
 // Strstr but index
 size_t shl_string_seek(shl_string string, const char* needle);
 // Count strstr hits
@@ -141,7 +133,7 @@ bool shl_string_trim(shl_string* string);
 #include <stdlib.h>
 
 static shl_string shl_string_empty(void) {
-	shl_string empty = { NULL, NULL, NULL };
+	shl_string empty = { NULL, NULL, NULL, SHL_STRING_GROW_LEAP };
 	return empty;
 }
 
@@ -161,7 +153,7 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 		return shl_string_empty();
 	}
 
-	size_t* alloc = (size_t*)malloc(strerSize + (2 * sizeof(size_t)) + sizeof(char));
+	size_t* alloc = malloc(strerSize + (2 * sizeof(size_t)) + sizeof(char));
 	if(!alloc) { errno = ENOMEM; return shl_string_empty(); }
 	string.data = (char*)alloc + (2 * sizeof(size_t));
 
@@ -173,6 +165,8 @@ shl_string shl_string_create(const char* contents, size_t* size) {
 	}
 	string.data[strerLen] = '\0';
 
+	string.growth = SHL_STRING_GROW_LEAP;
+
 	return string;
 }
 
@@ -182,6 +176,7 @@ void shl_string_free(shl_string* string) {
 	string->data = NULL;
 	string->length = NULL;
 	string->capacity = NULL;
+	string->growth = SHL_STRING_GROW_LEAP;
 }
 
 shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
@@ -191,7 +186,7 @@ shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
 		errno = EOVERFLOW;
 		return shl_string_empty();
 	}
-	size_t* alloc = (size_t*)malloc(capacity + (2 * sizeof(size_t)) + sizeof(char));
+	size_t* alloc = malloc(capacity + (2 * sizeof(size_t)) + sizeof(char));
 	if(!alloc) { errno = ENOMEM; return shl_string_empty(); }
 	char* alloStr = (char*)alloc + (2 * sizeof(size_t));
 	memset(alloStr, '\0', capacity + 1);
@@ -210,8 +205,46 @@ shl_string shl_string_strdup(shl_string string, bool cap_is_len) {
 	result.length = &alloc[1];
 	result.capacity = alloc;
 
+	result.growth = string.growth;
+
 	return result;
 }
+
+bool shl_string_reserve(shl_string* string, size_t capacity);
+bool shl_string_tighten(shl_string* string);
+bool shl_string_clear(shl_string* string);
+
+bool shl_string_append(shl_string* string, const char* text, shl_string_growth* growth);
+bool shl_string_append_char(shl_string* string, char character, shl_string_growth* growth);
+bool shl_string_appends(shl_string* string, shl_string source, shl_string_growth* growth);
+
+bool shl_string_splice(shl_string* string, size_t index, const char* text);
+bool shl_string_scrub(shl_string* string, size_t index, size_t count);
+
+bool shl_string_equals(shl_string string, const char* text);
+bool shl_string_holds(shl_string string, const char* needle);
+
+const char* shl_string_cstr(shl_string string);
+bool shl_string_hollow(shl_string string);
+
+bool shl_string_set(shl_string* string, const char* text);
+bool shl_string_mend(shl_string* string, size_t index, size_t count, const char* text);
+shl_string shl_string_carve(shl_string string, size_t index, size_t count);
+shl_string shl_string_weld(shl_string string, size_t start, size_t end);
+
+int shl_string_compare(shl_string string, const char* text);
+bool shl_string_compares(shl_string a, shl_string b);
+bool shl_string_begins(shl_string string, const char* prefix);
+bool shl_string_closes(shl_string string, const char* suffix);
+
+// Needle not found
+#define SHL_STRING_NPOS ((size_t)-1)
+size_t shl_string_seek(shl_string string, const char* needle);
+size_t shl_string_echoes(shl_string string, const char* needle);
+
+shl_string shl_string_raise(shl_string string);
+shl_string shl_string_lower(shl_string string);
+bool shl_string_trim(shl_string* string);
 
 #endif
 
